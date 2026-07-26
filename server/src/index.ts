@@ -1,5 +1,5 @@
 // server/src/index.ts
-import { C2SPacket, C2SPacketParams, Config, Constants, flattenBullet, flattenPlayerData, S2CPacket, S2CPacketParams, ServerBullet, ServerPlayer, Vec } from "@committee-training/shared";
+import { C2SPacket, C2SPacketParams, calculateMapSize, Config, Constants, flattenBullet, flattenPlayerData, S2CPacket, S2CPacketParams, ServerBullet, ServerPlayer, Vec } from "@committee-training/shared";
 import express from "express";
 import * as msgpack from "@msgpack/msgpack";
 import { createServer } from "http";
@@ -35,6 +35,20 @@ function broadcast<P extends S2CPacket>(code: P, ...params: S2CPacketParams[P]) 
   broadcastExclude(null, code, ...params);
 }
 
+let mapSize = calculateMapSize(1);
+let mapResizeTimeout: NodeJS.Timeout;
+
+function resizeMap() {
+  clearTimeout(mapResizeTimeout);
+  let size = calculateMapSize(players.size);
+  if (mapSize !== size) {
+    mapResizeTimeout = setTimeout(() => {
+      mapSize = size;
+      broadcast(S2CPacket.SetMapSize, mapSize);
+    }, Constants.mapResizeDelay);
+  }
+}
+
 function isValidNumber(n: number) {
   return typeof n === "number" && Number.isFinite(n);
 }
@@ -68,6 +82,7 @@ const handlers: {
     if (!isValidNumber(look)) return;
 
     pl.look = (look % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+    pl.lastLook = pl.look;
   },
   [C2SPacket.FireBullet](pl) {
     if (!pl.alive) return;
@@ -75,6 +90,9 @@ const handlers: {
   },
   [C2SPacket.Join](pl, name) {
     if (pl.alive) return;
+    if (Date.now() - pl.deathTime < Constants.playerRespawnTime) return;
+
+    if ([...players.values()].filter(p => p.alive).length >= Constants.maxPlayerCount) return;
 
     if (!name || typeof name !== "string") name = Constants.defaultName;
     name = name.replace(/[^a-zA-Z0-9\!\?\#\$\^\*\.\,\:\;\<\>\(\)\-\+\_\/\ ]/g, "").slice(0, Constants.nameLengthLimit);
@@ -83,8 +101,8 @@ const handlers: {
     pl.alive = true;
     pl.name = name;
     pl.health = Constants.playerMaxHealth;
-    pl.x = Math.random() * Constants.mapWidth;
-    pl.y = Math.random() * Constants.mapHeight;
+    pl.x = Math.random() * mapSize;
+    pl.y = Math.random() * mapSize;
     pl.motion.x = 0;
     pl.motion.y = 0;
     pl.bulletCooldown = 0;
@@ -93,14 +111,18 @@ const handlers: {
   },
   [C2SPacket.SetAutoFire](pl, autofire) {
     pl.autofire = !!autofire;
+  },
+  [C2SPacket.SetAutoSpin](pl, autospin) {
+    pl.autospin = !!autospin;
+    if (!autospin) pl.look = pl.lastLook;
   }
 };
 
 function enforceBound(p: ServerPlayer) {
-  const minX = 0;
-  const minY = 0;
-  const maxX = Constants.mapWidth;
-  const maxY = Constants.mapHeight;
+  const minX = -mapSize;
+  const minY = -mapSize;
+  const maxX = mapSize;
+  const maxY = mapSize;
 
   const pushForce = Constants.mapBoundaryForce * Constants.mspt / 1000; 
 
@@ -134,6 +156,11 @@ function tick() {
 
     p.x += p.motion.x;
     p.y += p.motion.y;
+
+    if (p.autospin) {
+      p.look += Constants.playerAutoSpinSpeed * Constants.mspt / 1000;
+      p.look %= 2 * Math.PI;
+    }
 
     if (p.bulletCooldown > 0) {
       p.bulletCooldown -= Constants.mspt;
@@ -250,6 +277,7 @@ function tick() {
 
     if (p.health <= 0) {
       p.alive = false;
+      p.deathTime = Date.now();
       p.walk.x = 0;
       p.walk.y = 0;
       p.motion.x = 0;
@@ -290,13 +318,19 @@ wss.on("connection", (ws: WebSocket) => {
     alive: false,
     firing: false,
     autofire: false,
+    autospin: false,
+    lastLook: 0,
+    deathTime: -Constants.playerRespawnTime,
     health: 0,
     bulletCooldown: 0
   };
   players.set(id, pl);
 
   send(pl, S2CPacket.AssignId, id);
+  send(pl, S2CPacket.SetMapSize, mapSize);
   console.log("[+]", players.size, "players online");
+
+  resizeMap();
 
   ws.on("message", <P extends C2SPacket>(data: Buffer) => {
     if (!(data instanceof Buffer)) return;
@@ -318,8 +352,11 @@ wss.on("connection", (ws: WebSocket) => {
 
   ws.on("close", () => {
     players.delete(id);
+
     broadcast(S2CPacket.RemovePlayer, id);
     console.log("[-]", players.size, "players left");
+
+    resizeMap();
   });
 });
 

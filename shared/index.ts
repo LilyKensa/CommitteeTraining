@@ -1,18 +1,20 @@
 // shared/index.ts
-import { UUID } from "crypto";
+import { type UUID } from "crypto";
 import { WebSocket } from "ws";
 
 export namespace Config {
   export const backendPort = 5440;
-  export const backendUrl = `ws://localhost:${backendPort}`;
+  export const backendUrl = `wss://huey.ckefgisc.org/not-diep/ws/`;
 }
 
 export namespace Constants {
   export const mspt = 50;
   export const steps = 8;
 
-  export const mapWidth = 2000;
-  export const mapHeight = 1600;
+  export const maxPlayerCount = 20;
+
+  export const mapResizeDelay = 2000;
+  export const mapAreaPerPlayer = 500 ** 2;
   export const mapBoundaryForce = 1.5;
 
   export const updateDist = Math.hypot(1920, 1080) * 1.2;
@@ -27,10 +29,13 @@ export namespace Constants {
   export const playerBounceDamage = 5;
   export const playerMaxHealth = 100;
   export const playerRegen = 5;
+  export const playerRespawnTime = 3000;
+  export const playerAutoSpinSpeed = 1;
 
   export const healthBarSize = playerSize * 2;
   export const healthBarYOffset = playerSize + 30;
   export const healthBarThickness = 10;
+
 
   export const defaultName = "unknown";
 
@@ -51,9 +56,9 @@ export namespace Constants {
   export const barrelShrink = 10;
 
   export const bulletSpeed = 800;
-  export const bulletSize = 30;
+  export const bulletSize = 35;
   export const bulletReload = 1500;
-  export const bulletRecoil = 160;
+  export const bulletRecoil = 120;
   export const bulletSpread = 0.05;
   export const bulletMaxDist = 1000;
   export const bulletDamage = 45;
@@ -76,9 +81,13 @@ export namespace Constants {
 
   export const objectBorder = 5;
   export const healthBorder = 2;
-  export const textBorder = 3;
+  export const textBorder = 4;
 
   export const blendRatio = 0.5;
+}
+
+export function calculateMapSize(count: number) {
+  return Math.ceil(Math.sqrt(Math.max(count, 1) * Constants.mapAreaPerPlayer) / Constants.gridSize) * Constants.gridSize;
 }
 
 export enum C2SPacket {
@@ -86,7 +95,8 @@ export enum C2SPacket {
   SetMotion = "a",
   SetLook = "b",
   FireBullet = "c",
-  SetAutoFire = "d"
+  SetAutoFire = "d",
+  SetAutoSpin = "e"
 }
 
 export type C2SPacketParams = {
@@ -95,6 +105,7 @@ export type C2SPacketParams = {
   [C2SPacket.SetLook]: [number];
   [C2SPacket.FireBullet]: [];
   [C2SPacket.SetAutoFire]: [boolean];
+  [C2SPacket.SetAutoSpin]: [boolean];
 }
 
 export enum S2CPacket {
@@ -105,7 +116,8 @@ export enum S2CPacket {
   FlashPlayer = "z",
   UpdatePlayers = "j",
   AddBullet = "q",
-  RemoveBullet = "k"
+  RemoveBullet = "k",
+  SetMapSize = "9"
 }
 
 export type S2CPacketParams = {
@@ -117,6 +129,7 @@ export type S2CPacketParams = {
   [S2CPacket.UpdatePlayers]: [UUID, any[]][];
   [S2CPacket.AddBullet]: any[];
   [S2CPacket.RemoveBullet]: [UUID];
+  [S2CPacket.SetMapSize]: [number];
 }
 
 export type S2CPacketHandler<P extends S2CPacket> = (...args: S2CPacketParams[P]) => void;
@@ -147,6 +160,9 @@ export interface ServerPlayer extends Player {
   alive: boolean;
   firing: boolean;
   autofire: boolean;
+  autospin: boolean;
+  lastLook: number;
+  deathTime: number;
 }
 
 export interface ClientPlayer extends Player {

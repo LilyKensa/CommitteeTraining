@@ -6,6 +6,7 @@
   import {
     assignPlayerData,
     C2SPacket,
+    calculateMapSize,
     Config,
     Constants,
     createBullet,
@@ -22,7 +23,9 @@
 
   let selfId = $state<UUID>();
   let pl = $state<ClientPlayer>();
-  let inGame = $state<boolean>(false);
+  let inGame = $state(false);
+  let mapSize = $state(calculateMapSize(Constants.maxPlayerCount));
+  let respawnTime = $state(0);
 
   let players = $state(new Map<string, ClientPlayer>());
   let bullets = $state(new Map<string, ClientBullet>());
@@ -41,6 +44,7 @@
   });
   let clicking = $state(false);
   let autofire = $state(false);
+  let autospin = $state(false);
 
   let ws = $state.raw<WebSocket>();
 
@@ -63,6 +67,7 @@
     },
     [S2CPacket.Kill]() {
       inGame = false;
+      respawnTime = Date.now() + Constants.playerRespawnTime;
     },
     [S2CPacket.AddBullet](...data) {
       let b = createBullet(data);
@@ -111,7 +116,7 @@
           sent.motion.x = motion.x;
           sent.motion.y = motion.y;
         }
-        if (look !== sent.look) {
+        if (look !== sent.look && !autospin) {
           send(C2SPacket.SetLook, look);
           sent.look = look;
         }
@@ -124,11 +129,18 @@
           pl.bulletCooldown = Constants.bulletReload;
         }
       }
+    },
+    [S2CPacket.SetMapSize](size) {
+      mapSize = size;
     }
   };
 
   $effect(() => {
     send(C2SPacket.SetAutoFire, autofire);
+  });
+
+  $effect(() => {
+    send(C2SPacket.SetAutoSpin, autospin);
   });
 
   onMount(() => {
@@ -190,9 +202,8 @@
   <title>NOT DIEP.IO</title>
 </svelte:head>
 
-{#if inGame}
-  <Input bind:motion bind:look bind:clicking bind:autofire />
-{:else}
-  <Menu onJoin={joinGame} />
+{#if !inGame}
+  <Menu onJoin={joinGame} bind:respawnTime />
 {/if}
-<Canvas bind:pl bind:look bind:players bind:bullets />
+<Input bind:inGame bind:motion bind:look bind:clicking bind:autofire bind:autospin />
+<Canvas bind:pl bind:look bind:autospin bind:mapSize bind:players bind:bullets />

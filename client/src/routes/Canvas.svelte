@@ -1,19 +1,24 @@
 <!-- client/src/routes/Canvas.svelte -->
 <script lang="ts">
+    import { browser } from "$app/env";
   import { Constants, type ClientBullet, type ClientPlayer } from "@committee-training/shared";
   import type { UUID } from "crypto";
 
   let {
     pl = $bindable(),
     look = $bindable(),
+    mapSize = $bindable(),
     players = $bindable(),
     bullets = $bindable(),
-    canvas = $bindable()!
+    autospin = $bindable(false),
+    canvas = $bindable()!,
   }: {
     pl?: ClientPlayer,
     look: number,
+    mapSize: number,
     players: Map<string, ClientPlayer>,
     bullets: Map<string, ClientBullet>,
+    autospin: boolean,
     canvas?: HTMLCanvasElement
   } = $props();
 
@@ -57,13 +62,12 @@
     y: 0
   };
 
+  let renderMapSize = mapSize;
+
   let plCanvas!: HTMLCanvasElement;
   let plCtx!: CanvasRenderingContext2D;
 
   $effect(() => {
-    cam.x = Constants.mapWidth / 2 - window.innerWidth / 2;
-    cam.y = Constants.mapHeight / 2 - window.innerHeight / 2;
-
     plCanvas = document.createElement("canvas");
     plCtx = plCanvas.getContext("2d")!;
     plCanvas.width = plCanvas.height = Constants.playerSize * 6;
@@ -71,6 +75,8 @@
 
   function render(delta: number) {
     let decayRate = 1 - Math.exp(-0.02 * delta);
+
+    renderMapSize = lerp(mapSize, renderMapSize, decayRate);
 
     for (let p of players.values()) {
       if (p.interpolate) {
@@ -94,7 +100,9 @@
         p.deathAnimation = 0;
 
         if (pl && p.id === pl.id) {
-          p.renderLook = look;
+          if (!autospin) {
+            p.renderLook = look;
+          }
 
           cam = {
             x: p.render.x - canvas.width / 2,
@@ -149,17 +157,19 @@
 
     ctx.globalAlpha = 0.1;
     ctx.fillStyle = Constants.borderColor;
-    if (cam.x <= 0) {
-      ctx.fillRect(cam.x, cam.y, -cam.x, canvas.height);
+    const mapLeft = -renderMapSize, mapRight = renderMapSize, mapTop = -renderMapSize, mapBottom = renderMapSize;
+    const mapInnerX = Math.max(mapLeft, cam.x), mapInnerWidth = Math.min(mapRight, cam.x + canvas.width) - mapInnerX;
+    if (cam.x < mapLeft) {
+      ctx.fillRect(cam.x, cam.y, mapLeft - cam.x, canvas.height);
     }
-    if (cam.x + canvas.width >= Constants.mapWidth) {
-      ctx.fillRect(Constants.mapWidth, cam.y, canvas.width - Constants.mapWidth + cam.x, canvas.height);
+    if (cam.x + canvas.width > mapRight) {
+      ctx.fillRect(mapRight, cam.y, (cam.x + canvas.width) - mapRight, canvas.height);
     }
-    if (cam.y <= 0) {
-      ctx.fillRect(Math.max(0, cam.x), cam.y, Constants.mapWidth - cam.x, -cam.y);
+    if (cam.y < mapTop) {
+      ctx.fillRect(mapInnerX, cam.y, mapInnerWidth, mapTop - cam.y);
     }
-    if (cam.y + canvas.height >= 0) {
-      ctx.fillRect(Math.max(0, cam.x), Constants.mapHeight, Constants.mapWidth - cam.x, canvas.height - Constants.mapHeight + cam.y);
+    if (cam.y + canvas.height > mapBottom) {
+      ctx.fillRect(mapInnerX, mapBottom, mapInnerWidth, (cam.y + canvas.height) - mapBottom);
     }
     ctx.globalAlpha = 1;
 
@@ -298,6 +308,11 @@
 
     canvas.width = 1920;
     canvas.height = 1080;
+    
+    cam = {
+      x: -canvas.width / 2,
+      y: -canvas.height / 2
+    };
 
     let frame: number;
     let last = 0;

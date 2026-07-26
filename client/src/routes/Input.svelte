@@ -3,10 +3,12 @@
   import { fly } from "svelte/transition";
 
   let {
+    inGame = $bindable(false),
     motion = $bindable({ x: 0, y: 0 }),
     look = $bindable(0),
     clicking = $bindable(false),
-    autofire = $bindable(false)
+    autofire = $bindable(false),
+    autospin = $bindable(false)
   } = $props();
 
   let show = $state(false);
@@ -20,6 +22,8 @@
 
   // Keyboard handlers
   function handleKeyDown(ev: KeyboardEvent) {
+    if (!inGame) return;
+
     const key = ev.key.toLowerCase();
     if (key in keys) {
       keys[key] = true;
@@ -35,10 +39,16 @@
         autofire = !autofire;
         break;
       }
+      case "c": {
+        autospin = !autospin;
+        break;
+      }
     }
   }
 
   function handleKeyUp(ev: KeyboardEvent) {
+    if (!inGame) return;
+    
     const key = ev.key.toLowerCase();
     if (key in keys) {
       keys[key] = false;
@@ -59,10 +69,12 @@
   }
 
   function handleMouseDown() {
+    if (!inGame) return;
     clicking = true;
   }
 
   function handleMouseUp() {
+    if (!inGame) return;
     clicking = false;
   }
 </script>
@@ -82,6 +94,7 @@
     <p><strong>Look Angle (Rad):</strong> {look.toFixed(2)}</p>
     <p><strong>Clicking:</strong> {clicking ? "Down" : "Up"}</p>
     <p><strong>Auto Fire:</strong> {autofire ? "Yes" : "No"}</p>
+    <p><strong>Auto Spin:</strong> {autospin ? "Yes" : "No"}</p>
   </aside>
 {/if}
 

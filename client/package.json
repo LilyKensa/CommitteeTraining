@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@committee-training/shared": "*",
+    "@fontsource/bowlby-one": "^5.3.0",
     "@msgpack/msgpack": "^3.1.3"
   }
 }

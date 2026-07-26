@@ -3,9 +3,15 @@
   import { browser } from "$app/env";
   import { Constants } from "@committee-training/shared";
 
-  let { onJoin }: {
+  let { 
+    onJoin, 
+    respawnTime = $bindable()
+  }: {
     onJoin?: (playerName: string) => void;
+    respawnTime: number;
   } = $props();
+
+  let respawnCooldown = $state(0);
 
   const nameStorageKey = "shooter-game-name";
   let name = $state(browser ? localStorage.getItem(nameStorageKey) ?? "" : "");
@@ -19,6 +25,25 @@
     if (!onJoin) return;
     onJoin(trimmed);
   }
+
+  let rcRefreshing = false;
+  function refreshRC() {
+    rcRefreshing = true;
+    respawnCooldown = respawnTime - Date.now();
+    console.log($state.snapshot(respawnCooldown));
+
+    if (respawnCooldown < 0) {
+      rcRefreshing = false;
+      return;
+    }
+    window.requestAnimationFrame(refreshRC);
+  }
+
+  $effect(() => {
+    if (respawnTime < Date.now()) return;
+    if (rcRefreshing) return;
+    refreshRC();
+  });
 </script>
 
 <div class="menu-backdrop">
@@ -43,8 +68,14 @@
         <button
           type="submit"
           class="btn-join"
+          disabled={respawnCooldown > 0}
+          style:--progress={1 - respawnCooldown / Constants.playerRespawnTime}
         >
-          Join Game
+          {#if respawnCooldown > 0}
+            {Math.ceil(respawnCooldown / 1000)}...
+          {:else}
+            Join Game
+          {/if}
         </button>
       </form>
     </div>
@@ -118,5 +149,13 @@
       transition-all duration-200 
       shadow-lg shadow-lime-600/20 
       disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+
+    &:disabled {
+      background: linear-gradient(
+        to right,
+        var(--color-lime-400) calc(var(--progress) * 100%),
+        var(--color-lime-600) calc(var(--progress) * 100%)
+      );
+    }
   }
 </style>
