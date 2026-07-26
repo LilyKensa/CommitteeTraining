@@ -1,0 +1,11 @@
+{
+  "name": "committee-training",
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "dependencies": {
+    "@fontsource/bowlby-one": "^5.3.0"
+  }
+}

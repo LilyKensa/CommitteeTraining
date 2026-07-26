@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@import "@fontsource/bowlby-one";
+
+@theme {
+  --font-sans: "Bowlby One", sans-serif;
+}
