@@ -1,34 +1,29 @@
 <!-- client/src/routes/+page.svelte -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { UUID } from "crypto";
+
   import * as msgpack from "@msgpack/msgpack";
-  import {
-    assignPlayerData,
-    C2SPacket,
-    calculateMapSize,
-    Config,
-    Constants,
-    createBullet,
-    createPlayer,
-    S2CPacket,
-    type C2SPacketParams,
-    type ClientBullet,
-    type ClientPlayer,
-    type S2CPacketParams,
-  } from "@committee-training/shared";
+
   import Menu from "./Menu.svelte";
   import Canvas from "./Canvas.svelte";
   import Input from "./Input.svelte";
 
-  let selfId = $state<UUID>();
+  import { PlayerPort, type ClientPlayer } from "@committee-training/shared/player";
+  import { Utils } from "@committee-training/shared/utils";
+  import { Constants } from "@committee-training/shared/constants";
+  import { Config } from "@committee-training/shared/config";
+  import { IdSet, SyncedIdSet } from "@committee-training/shared/id-set";
+  import { S2CPacket, type S2CPacketParams, C2SPacket, type C2SPacketParams } from "@committee-training/shared/io";
+  import { BulletPort, type ClientBullet } from "@committee-training/shared/bullet";
+
+  let selfId = $state<number>();
   let pl = $state<ClientPlayer>();
   let inGame = $state(false);
-  let mapSize = $state(calculateMapSize(Constants.maxPlayerCount));
+  let mapSize = $state(Utils.calculateMapSize(Constants.maxPlayerCount));
   let respawnTime = $state(0);
 
-  let players = $state(new Map<string, ClientPlayer>());
-  let bullets = $state(new Map<string, ClientBullet>());
+  let players = $state(new SyncedIdSet<ClientPlayer>());
+  let bullets = $state(new SyncedIdSet<ClientBullet>());
 
   let motion = $state({
     x: 0,
@@ -40,7 +35,9 @@
       x: 0,
       y: 0
     },
-    look: 0
+    look: 0,
+    autofire: false,
+    autospin: false
   });
   let clicking = $state(false);
   let autofire = $state(false);
@@ -56,7 +53,7 @@
   const handlers: {
     [P in S2CPacket]: (...args: S2CPacketParams[P]) => void
   } = {
-    [S2CPacket.AssignId](id: UUID) {
+    [S2CPacket.AssignId](id: number) {
       selfId = id;
     },
     [S2CPacket.Spawn]() {
@@ -70,7 +67,7 @@
       respawnTime = Date.now() + Constants.playerRespawnTime;
     },
     [S2CPacket.AddBullet](...data) {
-      let b = createBullet(data);
+      let b = BulletPort.createBullet(data);
       bullets.set(b.id, b);
 
       let p = players.get(b.owner);
@@ -88,10 +85,10 @@
       p.flash = 1;
     },
     [S2CPacket.RemovePlayer](id) {
-      players.delete(id);
+      players.release(id);
     },
     [S2CPacket.UpdatePlayers](...arr) {
-      for (let p of players.values()) {
+      for (let p of players) {
         p.interpolate = p.visible;
         p.visible = false;
       }
@@ -99,10 +96,10 @@
       for (let [id, data] of arr) {
         let p = players.get(id);
         if (p) {
-          assignPlayerData(p, data);
+          PlayerPort.assignPlayerData(p, data);
         } 
         else {
-          p = createPlayer(id, data);
+          p = PlayerPort.createPlayer(id, data);
           players.set(id, p);
         }
 
@@ -136,11 +133,24 @@
   };
 
   $effect(() => {
+    if (sent.autofire === autofire) return;
     send(C2SPacket.SetAutoFire, autofire);
+    sent.autofire = autofire;
   });
 
+  function syncLook() {
+    if (!pl) return;
+    pl.lastLook = look;
+    pl.renderLook = look;
+    send(C2SPacket.SetLook, look);
+    sent.look = look;
+  }
+
   $effect(() => {
+    if (sent.autospin === autospin) return;
     send(C2SPacket.SetAutoSpin, autospin);
+    sent.autospin = autospin;
+    syncLook();
   });
 
   onMount(() => {

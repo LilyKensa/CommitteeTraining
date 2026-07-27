@@ -1,10 +1,15 @@
-// server/src/index.ts
-import { C2SPacket, C2SPacketParams, calculateMapSize, Config, Constants, flattenBullet, flattenPlayerData, S2CPacket, S2CPacketParams, ServerBullet, ServerPlayer, Vec } from "@committee-training/shared";
 import express from "express";
 import * as msgpack from "@msgpack/msgpack";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { UUID } from "crypto";
+import { Utils } from "@committee-training/shared/utils";
+import { PlayerPort, ServerPlayer } from "@committee-training/shared/player";
+import { BulletPort, ServerBullet } from "@committee-training/shared/bullet";
+import { C2SPacket, C2SPacketParams, S2CPacket, S2CPacketParams } from "@committee-training/shared/io";
+import { Constants } from "@committee-training/shared/constants";
+import { Config } from "@committee-training/shared/config";
+import { IdSet } from "@committee-training/shared/id-set";
 
 const app = express();
 
@@ -17,15 +22,15 @@ app.get("/", (req, res) => {
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-const players = new Map<UUID, ServerPlayer>();
-const bullets = new Map<UUID, ServerBullet>();
+const players = new IdSet<ServerPlayer>();
+const bullets = new IdSet<ServerBullet>();
 
 function send<P extends S2CPacket>(pl: ServerPlayer, code: P, ...params: S2CPacketParams[P]) {
   pl.ws.send(msgpack.encode([code, ...params]));
 }
 
 function broadcastExclude<P extends S2CPacket>(pl: ServerPlayer | null, code: P, ...params: S2CPacketParams[P]) {
-  for (let p of players.values()) {
+  for (let p of players) {
     if (pl && p === pl) continue;
     send(p, code, ...params);
   }
@@ -35,12 +40,12 @@ function broadcast<P extends S2CPacket>(code: P, ...params: S2CPacketParams[P]) 
   broadcastExclude(null, code, ...params);
 }
 
-let mapSize = calculateMapSize(1);
+let mapSize = Utils.calculateMapSize(1);
 let mapResizeTimeout: NodeJS.Timeout;
 
 function resizeMap() {
   clearTimeout(mapResizeTimeout);
-  let size = calculateMapSize(players.size);
+  let size = Utils.calculateMapSize(players.length);
   if (mapSize !== size) {
     mapResizeTimeout = setTimeout(() => {
       mapSize = size;
@@ -82,7 +87,6 @@ const handlers: {
     if (!isValidNumber(look)) return;
 
     pl.look = (look % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
-    pl.lastLook = pl.look;
   },
   [C2SPacket.FireBullet](pl) {
     if (!pl.alive) return;
@@ -92,7 +96,7 @@ const handlers: {
     if (pl.alive) return;
     if (Date.now() - pl.deathTime < Constants.playerRespawnTime) return;
 
-    if ([...players.values()].filter(p => p.alive).length >= Constants.maxPlayerCount) return;
+    if ([...players].filter(p => p.alive).length >= Constants.maxPlayerCount) return;
 
     if (!name || typeof name !== "string") name = Constants.defaultName;
     name = name.replace(/[^a-zA-Z0-9\!\?\#\$\^\*\.\,\:\;\<\>\(\)\-\+\_\/\ ]/g, "").slice(0, Constants.nameLengthLimit);
@@ -114,7 +118,6 @@ const handlers: {
   },
   [C2SPacket.SetAutoSpin](pl, autospin) {
     pl.autospin = !!autospin;
-    if (!autospin) pl.look = pl.lastLook;
   }
 };
 
@@ -144,7 +147,7 @@ function enforceBound(p: ServerPlayer) {
 }
 
 function tick() {
-  let alivePlayers = [...players.values()].filter(p => p.alive);
+  let alivePlayers = [...players].filter(p => p.alive);
 
   for (let p of alivePlayers) {
     let ratio = Constants.playerSpeed * Constants.mspt / 1000;
@@ -173,9 +176,8 @@ function tick() {
       p.motion.x -= dx * Constants.bulletRecoil;
       p.motion.y -= dy * Constants.bulletRecoil;
 
-      let id = crypto.randomUUID();
       let bullet = {
-        id,
+        id: -1,
         owner: p.id,
         x: p.x,
         y: p.y,
@@ -185,9 +187,10 @@ function tick() {
         },
         dist: 0
       } satisfies ServerBullet;
-      bullets.set(id, bullet);
+      let id = bullets.add(bullet);
+      bullet.id = id;
 
-      broadcast(S2CPacket.AddBullet, ...flattenBullet(bullet));
+      broadcast(S2CPacket.AddBullet, ...BulletPort.flattenBullet(bullet));
     }
     p.firing = false;
 
@@ -236,7 +239,7 @@ function tick() {
     enforceBound(p);
   }
 
-  bulletsLoop: for (let b of bullets.values()) {
+  bulletsLoop: for (let b of bullets) {
     let ratio = Constants.bulletSpeed * Constants.mspt / 1000;
     for (let i = 0; i < Constants.steps; ++i) {
       let dx = b.motion.x * ratio / Constants.steps, dy = b.motion.y * ratio / Constants.steps;
@@ -244,7 +247,7 @@ function tick() {
       b.y += dy;
       b.dist += Math.hypot(dx, dy);
 
-      for (let p of players.values()) {
+      for (let p of players) {
         if (!p.alive) continue;
         if (p.id === b.owner) continue;
 
@@ -258,7 +261,7 @@ function tick() {
           p.health -= Constants.bulletDamage * dot;
           broadcast(S2CPacket.FlashPlayer, p.id);
 
-          bullets.delete(b.id);
+          bullets.release(b.id);
           broadcast(S2CPacket.RemoveBullet, b.id);
 
           continue bulletsLoop;
@@ -267,12 +270,12 @@ function tick() {
     }
 
     if (b.dist > Constants.bulletMaxDist) {
-      bullets.delete(b.id);
+      bullets.release(b.id);
       broadcast(S2CPacket.RemoveBullet, b.id);
     }
   }
 
-  for (let p of players.values()) {
+  for (let p of players) {
     if (!p.alive) continue;
 
     if (p.health <= 0) {
@@ -286,12 +289,12 @@ function tick() {
     }
   }
 
-  for (let p of players.values()) {
+  for (let p of players) {
     let playersFlatten: any[] = [];
-    for (let q of players.values()) {
+    for (let q of players) {
       if (!q.alive) continue;
       if (Math.hypot(p.x - q.x, p.y - q.y) <= Constants.updateDist) {
-        playersFlatten.push([q.id, flattenPlayerData(q)]);
+        playersFlatten.push([q.id, PlayerPort.flattenPlayerData(q)]);
       }
     }
     send(p, S2CPacket.UpdatePlayers, ...playersFlatten);
@@ -299,10 +302,9 @@ function tick() {
 }
 
 wss.on("connection", (ws: WebSocket) => {
-  let id = crypto.randomUUID();
   let pl = {
     ws,
-    id,
+    id: -1,
     name: Constants.defaultName,
     x: 0,
     y: 0,
@@ -324,11 +326,12 @@ wss.on("connection", (ws: WebSocket) => {
     health: 0,
     bulletCooldown: 0
   };
-  players.set(id, pl);
+  let id = players.add(pl);
+  pl.id = id;
 
   send(pl, S2CPacket.AssignId, id);
   send(pl, S2CPacket.SetMapSize, mapSize);
-  console.log("[+]", players.size, "players online");
+  console.log("[+]", players.length, "players online");
 
   resizeMap();
 
@@ -351,10 +354,16 @@ wss.on("connection", (ws: WebSocket) => {
   });
 
   ws.on("close", () => {
-    players.delete(id);
+    players.release(id);
+
+    for (let b of bullets) {
+      if (b.owner === id) {
+        bullets.release(b.id);
+      }
+    }
 
     broadcast(S2CPacket.RemovePlayer, id);
-    console.log("[-]", players.size, "players left");
+    console.log("[-]", players.length, "players left");
 
     resizeMap();
   });

@@ -1,4 +1,3 @@
-<!-- client/src/routes/Input.svelte -->
 <script lang="ts">
   import { fly } from "svelte/transition";
 

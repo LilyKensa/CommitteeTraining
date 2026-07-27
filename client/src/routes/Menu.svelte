@@ -1,7 +1,6 @@
-<!-- client/src/routes/Menu.svelte -->
 <script lang="ts">
   import { browser } from "$app/env";
-  import { Constants } from "@committee-training/shared";
+  import { Constants } from "@committee-training/shared/constants";
 
   let { 
     onJoin, 

@@ -1,8 +1,9 @@
-<!-- client/src/routes/Canvas.svelte -->
 <script lang="ts">
-    import { browser } from "$app/env";
-  import { Constants, type ClientBullet, type ClientPlayer } from "@committee-training/shared";
   import type { UUID } from "crypto";
+  import { Constants } from "@committee-training/shared/constants";
+  import { type ClientBullet } from "@committee-training/shared/bullet";
+  import { type ClientPlayer } from "@committee-training/shared/player";
+  import type { IdSet, SyncedIdSet } from "@committee-training/shared/id-set";
 
   let {
     pl = $bindable(),
@@ -16,8 +17,8 @@
     pl?: ClientPlayer,
     look: number,
     mapSize: number,
-    players: Map<string, ClientPlayer>,
-    bullets: Map<string, ClientBullet>,
+    players: SyncedIdSet<ClientPlayer>,
+    bullets: SyncedIdSet<ClientBullet>,
     autospin: boolean,
     canvas?: HTMLCanvasElement
   } = $props();
@@ -50,7 +51,7 @@
     return `#${r}${g}${b}`;
   }
 
-  function setObjectFillAndStroke(id: UUID, flash = 0, targetCtx = ctx) {
+  function setObjectFillAndStroke(id: number, flash = 0, targetCtx = ctx) {
     let color = pl && id === pl.id ? Constants.selfColor : Constants.enemyColor;
     if (flash) color = blendColor(Constants.flashColor, color, flash);
     targetCtx.fillStyle = color;
@@ -78,7 +79,7 @@
 
     renderMapSize = lerp(mapSize, renderMapSize, decayRate);
 
-    for (let p of players.values()) {
+    for (let p of players) {
       if (p.interpolate) {
         p.render.x = lerp(p.x, p.last.x, p.delta / Constants.mspt);
         p.render.y = lerp(p.y, p.last.y, p.delta / Constants.mspt);
@@ -119,11 +120,11 @@
       p.delta += delta;
     }
 
-    for (let b of bullets.values()) {
+    for (let b of bullets) {
       if (!b.alive) {
         b.deathAnimation += delta;
         if (b.deathAnimation >= Constants.deathAnimationTime) {
-          bullets.delete(b.id);
+          bullets.release(b.id);
           continue;
         }
       }
@@ -178,7 +179,7 @@
       return;
     }
 
-    for (let b of bullets.values()) {
+    for (let b of bullets) {
       ctx.save();
 
       ctx.lineWidth = Constants.objectBorder;
@@ -202,7 +203,7 @@
       ctx.restore();
     }
 
-    for (let p of players.values()) {
+    for (let p of players) {
       if (!p.visible && p.deathAnimation >= Constants.deathAnimationTime) continue;
 
       plCtx.clearRect(0, 0, plCanvas.width, plCanvas.height);
@@ -239,7 +240,7 @@
       plCtx.fillStyle = Constants.textColor;
       plCtx.strokeStyle = Constants.borderColor;
       for (let method of ["strokeText", "fillText"] as const)
-        plCtx[method](p.name, -nameSize.width / 2, Constants.nameYOffset);
+        plCtx[method](`${p.name} (${p.id})`, -nameSize.width / 2, Constants.nameYOffset);
 
       if (p.health < Constants.playerMaxHealth) {
         plCtx.lineWidth = Constants.healthBorder;
@@ -308,7 +309,7 @@
 
     canvas.width = 1920;
     canvas.height = 1080;
-    
+
     cam = {
       x: -canvas.width / 2,
       y: -canvas.height / 2
