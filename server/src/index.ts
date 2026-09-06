@@ -208,7 +208,7 @@ function tick() {
       let dx = p.x - q.x;
       let dy = p.y - q.y;
 
-      let bound = Constants.playerSize * 2;
+      let bound = Constants.playerRadius * 2;
       if (Math.abs(dx) > bound || Math.abs(dy) > bound) continue;
 
       let dist = Math.hypot(dx, dy);
@@ -253,7 +253,7 @@ function tick() {
 
         let ox = p.x - b.x, oy = p.y - b.y;
         let dist = Math.hypot(ox, oy);
-        if (dist <= Constants.playerSize + Constants.bulletSize) {
+        if (dist <= Constants.playerRadius + Constants.bulletRadius) {
           let sx = b.motion.x, sy = b.motion.y;
           let sd = Math.hypot(sx, sy);
           let dot = sx / sd * ox / dist + sy / sd * oy / dist;

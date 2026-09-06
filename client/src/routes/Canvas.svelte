@@ -71,7 +71,7 @@
   $effect(() => {
     plCanvas = document.createElement("canvas");
     plCtx = plCanvas.getContext("2d")!;
-    plCanvas.width = plCanvas.height = Constants.playerSize * 6;
+    plCanvas.width = plCanvas.height = Constants.playerCanvasSize;
   });
 
   function render(delta: number) {
@@ -142,13 +142,13 @@
     ctx.translate(-cam.x, -cam.y);
 
     ctx.beginPath();
-    for (let gx = Math.floor(cam.x / Constants.gridSize); gx <= Math.floor((cam.x + canvas.width) / Constants.gridSize); ++gx) {
-      let x = gx * Constants.gridSize;
+    for (let gx = Math.floor(cam.x / Constants.mapGridSize); gx <= Math.floor((cam.x + canvas.width) / Constants.mapGridSize); ++gx) {
+      let x = gx * Constants.mapGridSize;
       ctx.moveTo(x, cam.y);
       ctx.lineTo(x, cam.y + canvas.height);
     }
-    for (let gy = Math.floor(cam.y / Constants.gridSize); gy <= Math.floor((cam.y + canvas.height) / Constants.gridSize); ++gy) {
-      let y = gy * Constants.gridSize;
+    for (let gy = Math.floor(cam.y / Constants.mapGridSize); gy <= Math.floor((cam.y + canvas.height) / Constants.mapGridSize); ++gy) {
+      let y = gy * Constants.mapGridSize;
       ctx.moveTo(cam.x, y);
       ctx.lineTo(cam.x + canvas.width, y);
     }
@@ -195,7 +195,7 @@
       }
       
       ctx.beginPath();
-      ctx.arc(0, 0, Constants.bulletSize, 0, 2 * Math.PI);
+      ctx.arc(0, 0, Constants.bulletRadius, 0, 2 * Math.PI);
       setObjectFillAndStroke(b.owner);
       ctx.fill();
       ctx.stroke();
@@ -220,14 +220,14 @@
       
       plCtx.lineWidth = Constants.objectBorder;
       
-      plCtx.fillStyle = Constants.bulletColor;
-      plCtx.strokeStyle = blendColor(Constants.bulletColor, Constants.borderColor, Constants.blendRatio);
+      plCtx.fillStyle = Constants.barrelColor;
+      plCtx.strokeStyle = blendColor(Constants.barrelColor, Constants.borderColor, Constants.blendRatio);
       for (let method of ["fillRect", "strokeRect"] as const)
-        plCtx[method](0, -Constants.bulletSize, Constants.barrelSize - p.barrelShrink, Constants.bulletSize * 2);
+        plCtx[method](0, -Constants.bulletRadius, Constants.barrelSize - p.barrelShrink, Constants.bulletRadius * 2);
 
       setObjectFillAndStroke(p.id, p.flash, plCtx);
       plCtx.beginPath();
-      plCtx.arc(0, 0, Constants.playerSize, 0, 2 * Math.PI);
+      plCtx.arc(0, 0, Constants.playerRadius, 0, 2 * Math.PI);
       plCtx.fill();
       plCtx.stroke();
 
@@ -240,7 +240,7 @@
       plCtx.fillStyle = Constants.textColor;
       plCtx.strokeStyle = Constants.borderColor;
       for (let method of ["strokeText", "fillText"] as const)
-        plCtx[method](`${p.name} (${p.id})`, -nameSize.width / 2, Constants.nameYOffset);
+        plCtx[method](p.name, -nameSize.width / 2, Constants.nameYOffset);
 
       if (p.health < Constants.playerMaxHealth) {
         plCtx.lineWidth = Constants.healthBorder;
@@ -253,7 +253,7 @@
           Constants.healthBarThickness,
           Constants.healthBarThickness / 2
         );
-        plCtx.fillStyle = Constants.bulletColor;
+        plCtx.fillStyle = Constants.barrelColor;
         plCtx.fill();
         
         plCtx.beginPath();
